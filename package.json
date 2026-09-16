@@ -1,0 +1,56 @@
+{
+  "name": "@namestack/domains",
+  "version": "0.1.0",
+  "description": "Read-only Cloudflare Registrar domain availability CLI for humans and agents",
+  "type": "module",
+  "license": "MIT",
+  "author": "ricky9w",
+  "homepage": "https://ricky9w.cc/namestack/domains/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ricky9w/namestack-domains.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ricky9w/namestack-domains/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "packageManager": "bun@1.3.14",
+  "bin": {
+    "namestack-domains": "dist/cli.mjs",
+    "namestack-domains-mcp": "dist/mcp.mjs"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "README.zh.md"
+  ],
+  "scripts": {
+    "dev": "node --import tsx src/cli/main.ts",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.8.1",
+    "@modelcontextprotocol/server": "2",
+    "citty": "0.2.2",
+    "picocolors": "1.1.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@modelcontextprotocol/client": "2",
+    "@types/node": "22.20.2",
+    "tsdown": "0.23.0",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2"
+  }
+}

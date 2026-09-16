@@ -1,0 +1,34 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": {
+    "domains": [
+      {
+        "name": "sample-brand.com",
+        "registrable": true,
+        "tier": "standard",
+        "pricing": { "currency": "USD", "registration_cost": "10.50", "renewal_cost": "11.00" },
+        "future_field": true
+      },
+      { "name": "sample-brand.co", "registrable": false, "reason": "domain_unavailable" },
+      {
+        "name": "sample-brand.app",
+        "registrable": false,
+        "reason": "domain_premium",
+        "tier": "premium"
+      },
+      {
+        "name": "sample-brand.dev",
+        "registrable": false,
+        "reason": "extension_not_supported_via_api"
+      },
+      {
+        "name": "sample-brand.new",
+        "registrable": false,
+        "reason": "extension_disallows_registration"
+      },
+      { "name": "sample-brand.xyz", "registrable": false, "reason": "future_reason" }
+    ]
+  }
+}

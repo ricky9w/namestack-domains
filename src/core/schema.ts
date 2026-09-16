@@ -61,7 +61,13 @@ export const envelopeSchema = z.discriminatedUnion("ok", [
   }),
 ]);
 
-export const checkInputSchema = z.strictObject({ domains: z.array(z.string()).min(1).max(100) });
+export const checkInputSchema = z
+  .strictObject({
+    domains: z.array(z.string()).min(1).max(100).optional(),
+    name: z.string().optional(),
+    extensions: z.array(z.string()).min(1).max(100).optional(),
+  })
+  .describe("Provide exactly one of domains or name; extensions applies only to name.");
 export const searchInputSchema = z.strictObject({
   query: z.string().trim().min(1).max(100),
   extensions: z.array(z.string()).max(50).optional(),
@@ -72,6 +78,7 @@ export const extensionsInputSchema = z.strictObject({
   cursor: z.string().min(1).max(256).optional(),
 });
 
+export type CheckInput = z.infer<typeof checkInputSchema>;
 export type DomainResult = z.infer<typeof domainSchema>;
 export type Extension = z.infer<typeof extensionSchema>;
 export type QueryResult = z.infer<typeof querySchema>;

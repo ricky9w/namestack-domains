@@ -1,6 +1,7 @@
 import { domainToASCII } from "node:url";
 import { AppError, asError, errorData, usage } from "./errors.js";
 import {
+  type CheckInput,
   checkInputSchema,
   type DomainResult,
   type Envelope,
@@ -42,12 +43,39 @@ export function csv(value: string, max: number): string[] {
   return [...new Set(list)];
 }
 
-export function expandName(name: string, extensions: string[]): string[] {
+export function expandName(name: string, extensions: readonly string[]): string[] {
   const label = name.trim();
-  if (/[.\u3002\uff0e\uff61]/u.test(label)) usage("--name must contain a single domain label.");
+  if (!label || /[.\u3002\uff0e\uff61]/u.test(label))
+    usage("A name must be a single domain label, such as brand.");
   return extensions.map((extension) =>
     normalizeDomain(`${label}.${normalizeExtension(extension)}`),
   );
+}
+
+/** Extensions a bare name is checked across, most commonly wanted first. */
+export const DEFAULT_EXTENSIONS = [
+  "com",
+  "io",
+  "ai",
+  "app",
+  "dev",
+  "co",
+  "net",
+  "shop",
+  "store",
+  "online",
+  "site",
+  "info",
+] as const;
+
+/** Resolve a check request, given as complete domains or as one name, into normalized domains. */
+export function checkTargets({ domains, name, extensions }: CheckInput): string[] {
+  if ((domains === undefined) === (name === undefined))
+    usage("Provide exactly one of domains or name.");
+  if (domains === undefined)
+    return [...new Set(expandName(name ?? "", extensions ?? DEFAULT_EXTENSIONS))];
+  if (extensions !== undefined) usage("Extensions apply only to a name.");
+  return [...new Set(domains.map(normalizeDomain))];
 }
 
 /** Every upstream operation the domain layer builds on. */
@@ -72,8 +100,8 @@ export async function checkDomains(
   signal: AbortSignal,
 ): Promise<Outcome> {
   const parsed = checkInputSchema.safeParse(input);
-  if (!parsed.success) usage("Check accepts 1–100 domain names.");
-  const domains = [...new Set(parsed.data.domains.map(normalizeDomain))];
+  if (!parsed.success) usage("Check accepts 1–100 domains, or one name with 1–100 extensions.");
+  const domains = checkTargets(parsed.data);
   const results: DomainResult[] = [];
   let failure: AppError | undefined;
   for (let offset = 0; offset < domains.length; offset += 20) {

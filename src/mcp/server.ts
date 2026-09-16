@@ -1,8 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import pkg from "../../package.json" with { type: "json" };
-import { resolveRegistrar } from "../auth/resolve.js";
-import { checkDomains, listExtensions, type Outcome, searchDomains } from "../core/domains.js";
+import {
+  checkDomains,
+  checkTargets,
+  DEFAULT_EXTENSIONS,
+  listExtensions,
+  type Outcome,
+  type Registrar,
+  searchDomains,
+} from "../core/domains.js";
 import { asError, errorData } from "../core/errors.js";
 import { domainSchema, errorSchema, extensionSchema } from "../core/schema.js";
 
@@ -74,7 +81,10 @@ async function encode(operation: () => Promise<Outcome>): Promise<ToolResult> {
   };
 }
 
-export function createServer(): McpServer {
+/** Supplies the upstream client per call, so the transport decides where credentials come from. */
+export type RegistrarSource = (signal: AbortSignal) => Promise<Registrar>;
+
+export function createServer(registrar: RegistrarSource): McpServer {
   const server = new McpServer(
     { name: "namestack-domains", version: pkg.version },
     { capabilities: { tools: {} } },
@@ -85,25 +95,36 @@ export function createServer(): McpServer {
     {
       title: "Check domain availability",
       description:
-        "Check complete domain names against the registry in real time. Returns registrability, a reason when a name is unavailable, and first-year and renewal pricing.",
+        "Check domains against the registry in real time, given either complete domains or one name to try across extensions. Returns registrability, a reason when a domain is unavailable, and first-year and renewal pricing.",
       inputSchema: z.object({
         domains: z
           .array(z.string())
           .min(1)
           .max(100)
-          .describe("Complete domain names, for example brand.com."),
+          .optional()
+          .describe("Complete domain names, for example brand.com. Omit when passing name."),
+        name: z
+          .string()
+          .min(1)
+          .max(63)
+          .optional()
+          .describe("One domain label, for example brand. Omit when passing domains."),
+        extensions: z
+          .array(z.string())
+          .min(1)
+          .max(100)
+          .optional()
+          .describe(`Extensions to try name with. Defaults to ${DEFAULT_EXTENSIONS.join(", ")}.`),
       }),
       outputSchema: envelopeOf(domainResult),
       annotations: READ_ONLY,
     },
-    async ({ domains }, ctx) =>
-      encode(async () =>
-        checkDomains(
-          { domains },
-          await resolveRegistrar(undefined, ctx.mcpReq.signal),
-          ctx.mcpReq.signal,
-        ),
-      ),
+    async (input, ctx) =>
+      encode(async () => {
+        // Resolve the targets before credentials, so a bad request is reported as such.
+        const domains = checkTargets(input);
+        return checkDomains({ domains }, await registrar(ctx.mcpReq.signal), ctx.mcpReq.signal);
+      }),
   );
 
   server.registerTool(
@@ -128,11 +149,7 @@ export function createServer(): McpServer {
     },
     async (input, ctx) =>
       encode(async () =>
-        searchDomains(
-          input,
-          await resolveRegistrar(undefined, ctx.mcpReq.signal),
-          ctx.mcpReq.signal,
-        ),
+        searchDomains(input, await registrar(ctx.mcpReq.signal), ctx.mcpReq.signal),
       ),
   );
 
@@ -156,11 +173,7 @@ export function createServer(): McpServer {
     },
     async (input, ctx) =>
       encode(async () =>
-        listExtensions(
-          input,
-          await resolveRegistrar(undefined, ctx.mcpReq.signal),
-          ctx.mcpReq.signal,
-        ),
+        listExtensions(input, await registrar(ctx.mcpReq.signal), ctx.mcpReq.signal),
       ),
   );
 

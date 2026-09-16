@@ -190,7 +190,7 @@ export class CredentialStore {
         "No saved credentials were found.",
         1,
         false,
-        "Run namestack-domains auth login, or set CLOUDFLARE_API_TOKEN for non-interactive use.",
+        "Run namestack-domains auth login in a terminal (npx -y @namestack/domains auth login without a global install), or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.",
       );
     if (credentials.method === "api-token")
       return { method: "api-token", accountId: credentials.accountId, token: credentials.token };

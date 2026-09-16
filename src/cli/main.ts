@@ -21,6 +21,7 @@ const root = defineCommand<ArgsDef>({
     auth: () => import("./commands/auth.js").then((module) => module.default),
     doctor: () => import("./commands/doctor.js").then((module) => module.default),
     schema: () => import("./commands/schema.js").then((module) => module.default),
+    mcp: () => import("./commands/mcp.js").then((module) => module.default),
   },
 });
 
@@ -80,9 +81,13 @@ async function main(rawArgs: string[]) {
       path.push(name);
     }
     const definitions = (await resolve(command.args ?? {})) as ArgsDef;
+    // The MCP server owns stdout for protocol messages, so its startup errors go to stderr.
+    const serving = path.join(" ") === "namestack-domains mcp";
+    const present = (values: Record<string, unknown>) =>
+      serving ? { ...presentation(values), json: false } : presentation(values);
     // This pass selects error presentation; validation still uses strict native parsing below.
     try {
-      view = presentation(
+      view = present(
         parseArgs({
           args,
           options: nativeOptions(definitions),
@@ -95,7 +100,7 @@ async function main(rawArgs: string[]) {
       /* Keep automatic output if malformed arguments cannot be parsed. */
     }
     const values = validateArgs(args, definitions);
-    view = presentation(values);
+    view = present(values);
     if (values.version) {
       process.stdout.write(`${pkg.version}\n`);
       return;
@@ -107,6 +112,11 @@ async function main(rawArgs: string[]) {
         meta: { ...meta, name: path.join(" "), version: pkg.version },
       });
       process.stdout.write(`${stripVTControlCharacters(help)}\n`);
+      return;
+    }
+    if (serving) {
+      // The server runs until the host closes stdin, well past this function.
+      (await import("../mcp/stdio.js")).serve();
       return;
     }
     if (!command.run) usage("Specify a command before its options. Run namestack-domains --help.");

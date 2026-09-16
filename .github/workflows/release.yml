@@ -49,7 +49,8 @@ jobs:
           npm install "$GITHUB_WORKSPACE/$tarball"
           ./node_modules/.bin/namestack-domains --version
           ./node_modules/.bin/namestack-domains schema --format=json > /dev/null
-          test -x ./node_modules/.bin/namestack-domains-mcp
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release","version":"0"}}}' \
+            | ./node_modules/.bin/namestack-domains mcp | grep -q '"serverInfo"'
 
       # Publishes the exact tarball that was just verified. Trusted publishing
       # supplies the credential over OIDC, so no npm token is stored here.

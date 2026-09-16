@@ -1,6 +1,6 @@
 {
   "name": "@namestack/domains",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Read-only Cloudflare Registrar domain availability CLI for humans and agents",
   "type": "module",
   "license": "MIT",
@@ -21,8 +21,7 @@
   },
   "packageManager": "bun@1.3.14",
   "bin": {
-    "namestack-domains": "dist/cli.mjs",
-    "namestack-domains-mcp": "dist/mcp.mjs"
+    "namestack-domains": "dist/cli.mjs"
   },
   "files": [
     "dist",

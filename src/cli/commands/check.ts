@@ -1,4 +1,5 @@
 import { defineCommand } from "citty";
+import { DEFAULT_EXTENSIONS } from "../../core/domains.js";
 import { accountArgs, commonArgs } from "../args.js";
 
 export default defineCommand({
@@ -13,7 +14,7 @@ export default defineCommand({
     name: { type: "string", description: "Check one domain label across extensions." },
     extensions: {
       type: "string",
-      description: "Use comma-separated extensions with --name (default: com,co,app,dev).",
+      description: `Use comma-separated extensions with --name (default: ${DEFAULT_EXTENSIONS.join(",")}).`,
     },
   },
   async run({ args, data }) {

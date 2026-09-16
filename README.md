@@ -4,7 +4,7 @@ English | [简体中文](README.zh.md)
 
 Check whether a name is available as a domain, and what it costs, through the Cloudflare Registrar API. Read-only: it never buys, registers, transfers, or renews anything.
 
-Ships a CLI for people and an MCP server for agents, both over the same query engine.
+One command serves both audiences over the same query engine: a CLI for people, and `namestack-domains mcp`, an MCP server for agents.
 
 ## Quick start
 
@@ -13,8 +13,8 @@ Ships a CLI for people and an MCP server for agents, both over the same query en
 Requires Node.js 22.18 or newer.
 
 ```sh
-npm install --global @namestack/domains          # namestack-domains, namestack-domains-mcp
-npx @namestack/domains check --name=yourbrand    # or run it without installing
+npm install --global @namestack/domains            # installs namestack-domains
+npx -y @namestack/domains check --name=yourbrand   # or run it without installing
 ```
 
 To build and install from a clone instead:
@@ -23,10 +23,10 @@ To build and install from a clone instead:
 bun install --frozen-lockfile
 bun run build
 npm pack
-npm install --global ./namestack-domains-0.1.0.tgz
+npm install --global ./namestack-domains-*.tgz
 ```
 
-The installed commands need Node, not Bun. Bun is only used to build.
+The installed command needs Node, not Bun. Bun is only used to build.
 
 ### Authentication
 
@@ -55,7 +55,7 @@ Run `auth login`, choose the API token method, and paste it. A token scoped to R
 
 `XDG_CONFIG_HOME` moves the whole tree, `NAMESTACK_CONFIG_DIR` replaces the `namestack` level, and `NAMESTACK_DOMAINS_CONFIG_DIR` points this tool at an absolute path.
 
-`CLOUDFLARE_API_TOKEN` takes precedence over saved credentials, which suits CI, and `CLOUDFLARE_ACCOUNT_ID` selects the account. `auth logout` deletes the local credentials and asks Cloudflare to revoke an OAuth grant; an API token must be deleted in the dashboard.
+`CLOUDFLARE_API_TOKEN` takes precedence over saved credentials, which suits CI, and `CLOUDFLARE_ACCOUNT_ID` selects the account; without it, an environment token uses the account of the saved login. `auth logout` deletes the local credentials and asks Cloudflare to revoke an OAuth grant; an API token must be deleted in the dashboard.
 
 ### Usage
 
@@ -66,7 +66,9 @@ namestack-domains doctor --online
 namestack-domains check --name=yourbrand
 ```
 
-`doctor --online` verifies live Registrar access by checking `example.com`; without `--online` it only reports local configuration. `check --name=yourbrand` checks `yourbrand.com`, `.co`, `.app`, and `.dev`. A domain being unavailable is a normal result, not a failure.
+`doctor --online` verifies live Registrar access by checking `example.com`; without `--online` it only reports local configuration. `check --name=yourbrand` checks that label across 12 default extensions: `com`, `io`, `ai`, `app`, `dev`, `co`, `net`, `shop`, `store`, `online`, `site`, and `info`. Pass `--extensions=` to choose your own; all of them go out in one request. A domain being unavailable is a normal result, not a failure.
+
+To query from Claude Code or another MCP host instead, see [MCP server](#mcp-server).
 
 ## Command reference
 
@@ -82,6 +84,7 @@ Put the complete command path first, then its options. Every command supports `-
 | `auth status` | Shows the credential source, method, and storage path, never a secret. | Local only; it makes no network request. |
 | `auth logout` | Deletes saved credentials, revoking an OAuth grant. | `--local` skips revocation. |
 | `schema` | Prints JSON Schema for every input and result. | Needs no credentials. |
+| `mcp` | Serves the query tools to an MCP host over stdio. | The host starts it; see [MCP server](#mcp-server). |
 
 `check` takes exactly one of `--domains` and `--name`, up to 100 domains, and accepts `--extensions` only with `--name`. `search` takes 1–100 characters and a limit of 1–50. `extensions` takes a limit of 1–50 and returns `cursor: null` on the final page.
 
@@ -110,6 +113,8 @@ Registrability is a snapshot. It reserves nothing and says nothing about tradema
 
 ## Use with AI agents and scripts
 
+### Scripts
+
 Data commands write exactly one newline-terminated envelope to stdout, with diagnostics on stderr:
 
 ```json
@@ -117,7 +122,7 @@ Data commands write exactly one newline-terminated envelope to stdout, with diag
 {"schemaVersion":1,"ok":false,"error":{"code":"AUTH_REQUIRED","message":"No saved credentials were found.","retryable":false}}
 ```
 
-For scripted use, select JSON and disable interaction explicitly:
+Select JSON and disable interaction explicitly:
 
 ```sh
 namestack-domains check --name=yourbrand --format=json --no-input
@@ -126,19 +131,81 @@ namestack-domains schema --format=json
 
 JSON mode never starts a spinner or a browser login, and missing credentials fail immediately instead of prompting.
 
-**Agent skill.** The bundled [skill](skills/namestack-domains/SKILL.md) tells an agent how to bound queries and interpret results. Install the CLI first; the skill neither installs the executable nor authenticates it.
+### Agent skill
 
-**MCP server.** `namestack-domains-mcp` serves the same operations over stdio:
+The bundled [skill](skills/namestack-domains/SKILL.md) tells an agent how to bound queries and interpret results through the CLI. Install the CLI first; the skill neither installs the executable nor authenticates it.
+
+### MCP server
+
+`namestack-domains mcp` serves the queries to an MCP host over stdio. The host starts and stops the process; you do not run it yourself.
+
+#### Set up in Claude Code
+
+1. Authenticate once in a terminal with `namestack-domains auth login`, or `npx -y @namestack/domains auth login` without a global install. To skip this step, pass a token instead; see [Credentials](#credentials).
+2. Register the server. `--scope user` makes it available in every project:
+
+   ```sh
+   claude mcp add namestack-domains --scope user -- namestack-domains mcp
+   ```
+
+3. Run `claude mcp list` and look for `✔ Connected`. In a session, `/mcp` lists the three tools. Add the rule `mcp__namestack-domains` with `/permissions` to allow all three without prompts.
+
+Other hosts take the same command in their JSON configuration. If a host cannot find the command, use the absolute path from `command -v namestack-domains`.
 
 ```json
 {
   "mcpServers": {
-    "namestack-domains": { "command": "namestack-domains-mcp" }
+    "namestack-domains": { "command": "namestack-domains", "args": ["mcp"] }
   }
 }
 ```
 
-It exposes `domains_check`, `domains_search`, and `domains_extensions`, each annotated read-only with a strict input and output schema. Results arrive as `structuredContent` carrying the envelope above, and an operational failure returns `isError` rather than closing the connection. It reads the same saved credentials as the CLI and never prompts.
+#### Launch command
+
+| Command | Behavior |
+| --- | --- |
+| `namestack-domains mcp` | Runs the global install and never contacts npm at startup. Upgrade with `npm install --global @namestack/domains@latest`. |
+| `npx -y @namestack/domains mcp` | Needs no install and picks up new releases, because npx checks the registry on every start. Offline, npx retries for about 70 seconds before using its cache, which exceeds Claude Code's 30-second startup limit. |
+| `npx -y --prefer-offline @namestack/domains mcp` | Skips the registry check, so it starts offline but does not look for new releases. |
+
+The first npx start downloads the package. Authenticating through npx in step 1 caches it in advance; otherwise raise the limit with `MCP_TIMEOUT=60000 claude`.
+
+#### Credentials
+
+The server resolves credentials on every call, exactly as the CLI does, and never prompts: `CLOUDFLARE_API_TOKEN` first, then the saved login. An OAuth login refreshes itself, and a login made while the host is running applies from the next call.
+
+A host does not necessarily pass your shell environment to the server, so set a token explicitly, together with the account:
+
+```sh
+claude mcp add namestack-domains --scope user \
+  -e CLOUDFLARE_API_TOKEN=<token> \
+  -e CLOUDFLARE_ACCOUNT_ID=<account-id> \
+  -- namestack-domains mcp
+```
+
+Claude Code keeps these values in plain text in `~/.claude.json`, and the command leaves the token in your shell history. If you moved the credential directory, pass `XDG_CONFIG_HOME` or `NAMESTACK_DOMAINS_CONFIG_DIR` the same way.
+
+For a team, `--scope project` writes a `.mcp.json` to commit. Keep tokens out of it, and have each member authenticate on their own machine:
+
+```json
+{
+  "mcpServers": {
+    "namestack-domains": { "command": "npx", "args": ["-y", "@namestack/domains", "mcp"] }
+  }
+}
+```
+
+If every member uses a token, reference it in an `env` block as `"${CLOUDFLARE_API_TOKEN}"` and `"${CLOUDFLARE_ACCOUNT_ID}"` rather than writing the values.
+
+#### Tools
+
+| Tool | Input |
+| --- | --- |
+| `domains_check` | Takes `domains` (1–100 complete domains), or `name` with optional `extensions`, which default to the 12 listed under [Usage](#usage). |
+| `domains_search` | Takes `query` with optional `extensions` and `limit` (1–50, default 20). Confirm its suggestions with `domains_check`. |
+| `domains_extensions` | Takes optional `limit` (1–50, default 50) and the `cursor` of the previous page. |
+
+All three are annotated read-only and declare strict input and output schemas. Results arrive as `structuredContent` carrying the envelope shown under [Scripts](#scripts). An operational failure, including missing credentials, returns `isError` with the same envelope and leaves the server running.
 
 ## Development
 
@@ -148,7 +215,7 @@ bun run dev -- check --name=example   # run the CLI from source
 bun run typecheck                     # tsc --noEmit
 bun run lint                          # biome
 bun run test                          # node:test
-bun run build                         # tsdown, emits dist/cli.mjs and dist/mcp.mjs
+bun run build                         # tsdown, emits dist/cli.mjs
 ```
 
 Responsibilities are split by directory: `core/` owns the domain operations and result contracts, `providers/` owns Cloudflare requests and normalization, `auth/` owns credential storage and resolution, and `cli/` and `mcp/` adapt the same core operations to their transports. Keep terminal output, prompts, and process exits out of `core/`, and contain upstream format changes inside `providers/`.

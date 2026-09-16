@@ -3,45 +3,26 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
+import { DEFAULT_EXTENSIONS } from "../src/core/domains.js";
 import { createServer } from "../src/mcp/server.js";
+import { Cloudflare } from "../src/providers/cloudflare.js";
 
 const account = "a".repeat(32);
 
 async function connected(fetcher: typeof fetch) {
-  const directory = await mkdtemp(join(tmpdir(), "namestack-mcp-test-"));
-  const previous = {
-    fetch: globalThis.fetch,
-    token: process.env.CLOUDFLARE_API_TOKEN,
-    account: process.env.CLOUDFLARE_ACCOUNT_ID,
-    dir: process.env.NAMESTACK_DOMAINS_CONFIG_DIR,
-  };
-  globalThis.fetch = fetcher;
-  process.env.CLOUDFLARE_API_TOKEN = "fake-token";
-  process.env.CLOUDFLARE_ACCOUNT_ID = account;
-  process.env.NAMESTACK_DOMAINS_CONFIG_DIR = directory;
-
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  const server = createServer();
+  const server = createServer(async () => new Cloudflare(account, "fake-token", fetcher));
   const client = new Client({ name: "namestack-domains-test", version: "0.0.0" });
   await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
-
   return {
     client,
     async close() {
       await client.close();
       await server.close();
-      globalThis.fetch = previous.fetch;
-      for (const [key, value] of [
-        ["CLOUDFLARE_API_TOKEN", previous.token],
-        ["CLOUDFLARE_ACCOUNT_ID", previous.account],
-        ["NAMESTACK_DOMAINS_CONFIG_DIR", previous.dir],
-      ] as const) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-      await rm(directory, { recursive: true, force: true });
     },
   };
 }
@@ -155,5 +136,98 @@ test("input validation fails the call before any upstream request", async () => 
     assert.equal(calls, 0);
   } finally {
     await session.close();
+  }
+});
+
+test("a name is checked across the shared default extensions, or the ones given", async () => {
+  const requested: string[][] = [];
+  const session = await connected(async (url, init) => {
+    requested.push(JSON.parse(String(init?.body)).domains);
+    return okCheck(url, init);
+  });
+  try {
+    const defaults = await session.client.callTool({
+      name: "domains_check",
+      arguments: { name: "Brand" },
+    });
+    assert.notEqual(defaults.isError, true);
+    const { data } = defaults.structuredContent as { data: { domains: { domain: string }[] } };
+    assert.deepEqual(
+      data.domains.map((result) => result.domain),
+      DEFAULT_EXTENSIONS.map((extension) => `brand.${extension}`),
+    );
+
+    const chosen = await session.client.callTool({
+      name: "domains_check",
+      arguments: { name: "brand", extensions: [".dev", "co.uk"] },
+    });
+    assert.notEqual(chosen.isError, true);
+    assert.deepEqual(requested.at(-1), ["brand.dev", "brand.co.uk"]);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a check takes exactly one of domains or name, rejected before any upstream request", async () => {
+  let calls = 0;
+  const session = await connected(async (url, init) => {
+    calls++;
+    return okCheck(url, init);
+  });
+  try {
+    for (const args of [
+      {},
+      { domains: ["brand.com"], name: "brand" },
+      { domains: ["brand.com"], extensions: ["com"] },
+      { name: "brand.com" },
+    ]) {
+      const result = await session.client.callTool({ name: "domains_check", arguments: args });
+      assert.equal(result.isError, true, JSON.stringify(args));
+      const envelope = result.structuredContent as { error: { code: string } };
+      assert.equal(envelope.error.code, "INVALID_USAGE", JSON.stringify(args));
+    }
+    assert.equal(calls, 0);
+  } finally {
+    await session.close();
+  }
+});
+
+test("namestack-domains mcp serves the tools over stdio", async () => {
+  const config = await mkdtemp(join(tmpdir(), "namestack-mcp-stdio-"));
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env))
+    if (value !== undefined && !key.startsWith("CLOUDFLARE_") && !key.startsWith("NAMESTACK_"))
+      env[key] = value;
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [
+      "--import",
+      "tsx",
+      "--import",
+      fileURLToPath(new URL("fixtures/mock-fetch.mjs", import.meta.url)),
+      "src/cli/main.ts",
+      "mcp",
+    ],
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: {
+      ...env,
+      CLOUDFLARE_API_TOKEN: "fake-token",
+      CLOUDFLARE_ACCOUNT_ID: account,
+      NAMESTACK_DOMAINS_CONFIG_DIR: config,
+    },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "namestack-domains-test", version: "0.0.0" });
+  try {
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+    assert.equal(tools.length, 3);
+    const result = await client.callTool({ name: "domains_check", arguments: { name: "brand" } });
+    assert.notEqual(result.isError, true);
+    const { data } = result.structuredContent as { data: { count: number } };
+    assert.equal(data.count, DEFAULT_EXTENSIONS.length);
+  } finally {
+    await client.close();
+    await rm(config, { recursive: true, force: true });
   }
 });

@@ -1,9 +1,13 @@
 // Loaded only by subprocess tests; production code never reads these variables.
 const mode = process.env.NAMESTACK_TEST_RESPONSE ?? "success";
+const account = process.env.NAMESTACK_TEST_ACCOUNT;
 globalThis.fetch = async (input, init) => {
   const url = new URL(String(input));
   if (url.origin !== "https://api.cloudflare.com" || !url.pathname.includes("/registrar/")) {
     throw new Error("Unexpected network destination in CLI test");
+  }
+  if (account && !url.pathname.startsWith(`/client/v4/accounts/${account}/`)) {
+    throw new Error("Unexpected account in CLI test");
   }
   if (mode === "hang") {
     process.stderr.write("TEST_REQUEST_STARTED\n");

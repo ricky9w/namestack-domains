@@ -1,7 +1,7 @@
 import {
   checkDomains,
+  checkTargets,
   csv,
-  expandName,
   listExtensions,
   normalizeExtension,
   type Outcome,
@@ -13,21 +13,20 @@ import { integer } from "./args.js";
 import { type Context, registrar, stringOption, type Values } from "./context.js";
 import { withProgress } from "./output.js";
 
-const DEFAULT_EXTENSIONS = "com,co,app,dev";
-
 export async function check(values: Values, context: Context): Promise<Outcome> {
   const names = stringOption(values, "domains");
   const name = stringOption(values, "name");
+  const extensions = stringOption(values, "extensions");
   if ((names === undefined) === (name === undefined))
     usage("Use exactly one of --domains or --name.");
-  if (names !== undefined && values.extensions !== undefined)
+  if (names !== undefined && extensions !== undefined)
     usage("--extensions is only valid with --name.");
-  if (name !== undefined && !name.trim()) usage("--name must contain a domain label.");
-  // Core normalizes and deduplicates; the CLI only decides which names to ask about.
-  const domains =
+  // Resolve the targets before credentials, so a bad name is a usage error either way.
+  const domains = checkTargets(
     names !== undefined
-      ? csv(names, 100)
-      : expandName(name ?? "", csv(stringOption(values, "extensions") ?? DEFAULT_EXTENSIONS, 100));
+      ? { domains: csv(names, 100) }
+      : { name, ...(extensions === undefined ? {} : { extensions: csv(extensions, 100) }) },
+  );
   const provider = await registrar(values, context.signal);
   return withProgress(context.view, context.signal, "Checking domain availability", () =>
     checkDomains({ domains }, provider, context.signal),

@@ -28,15 +28,20 @@ export async function resolveRegistrar(
   const envToken = process.env.CLOUDFLARE_API_TOKEN;
   if (envToken !== undefined && !envToken.trim())
     throw new AppError("CONFIG_INVALID", "CLOUDFLARE_API_TOKEN is empty.", 2);
-  const access = envToken ? undefined : await settings.store.access(signal);
-  const account = settings.accountId ?? access?.accountId;
+  if (!envToken) {
+    const access = await settings.store.access(signal);
+    return new Cloudflare(settings.accountId ?? access.accountId, access.token);
+  }
+  // An environment token can still take its account from a saved login.
+  const account =
+    settings.accountId ?? (await settings.store.read().catch(() => undefined))?.accountId;
   if (!account)
     throw new AppError(
       "CONFIG_REQUIRED",
       "No Cloudflare account is configured.",
       2,
       false,
-      "Run namestack-domains auth login, or set CLOUDFLARE_ACCOUNT_ID.",
+      "Set CLOUDFLARE_ACCOUNT_ID alongside CLOUDFLARE_API_TOKEN.",
     );
-  return new Cloudflare(account, envToken ?? access?.token ?? "");
+  return new Cloudflare(account, envToken);
 }

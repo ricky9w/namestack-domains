@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_EXTENSIONS } from "../src/core/domains.js";
 
 const directory = fileURLToPath(new URL("..", import.meta.url));
 const mock = fileURLToPath(new URL("fixtures/mock-fetch.mjs", import.meta.url));
 
 async function cli(
   args: string[],
-  options: { env?: NodeJS.ProcessEnv; signal?: NodeJS.Signals; mock?: boolean } = {},
+  options: {
+    env?: NodeJS.ProcessEnv;
+    signal?: NodeJS.Signals;
+    mock?: boolean;
+    input?: string;
+  } = {},
 ) {
   const config = await mkdtemp(join(tmpdir(), "namestack-cli-test-"));
   const env: NodeJS.ProcessEnv = {
@@ -38,8 +44,14 @@ async function cli(
         "src/cli/main.ts",
         ...args,
       ],
-      { cwd: directory, env, stdio: ["ignore", "pipe", "pipe"] },
+      {
+        cwd: directory,
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
     );
+    // An empty stdin reads like a closed one, which is what non-interactive callers provide.
+    child.stdin.end(options.input ?? "");
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -71,7 +83,10 @@ test("check emits exactly one JSON envelope and keeps non-TTY stderr empty", asy
   assert.equal(result.stdout.trim().split("\n").length, 1);
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.ok, true);
-  assert.equal(parsed.data.domains.length, 4);
+  assert.deepEqual(
+    parsed.data.domains.map((domain: { domain: string }) => domain.domain),
+    DEFAULT_EXTENSIONS.map((extension) => `brand.${extension}`),
+  );
   assert.equal(parsed.data.authoritative, true);
   assert.equal(result.stdout.includes("\x1b"), false);
 });
@@ -184,4 +199,58 @@ test("explicit env files do not override existing environment values", async () 
   } finally {
     await rm(folder, { recursive: true, force: true });
   }
+});
+
+test("an environment token takes its account from the saved login when none is set", async () => {
+  const config = await mkdtemp(join(tmpdir(), "namestack-account-test-"));
+  try {
+    const saved = "b".repeat(32);
+    await mkdir(config, { recursive: true });
+    await writeFile(
+      join(config, "credentials.json"),
+      JSON.stringify({
+        version: 1,
+        method: "api-token",
+        accountId: saved,
+        token: "saved-token",
+        savedAt: new Date().toISOString(),
+      }),
+      { mode: 0o600 },
+    );
+    const env = { CLOUDFLARE_ACCOUNT_ID: undefined, NAMESTACK_TEST_ACCOUNT: saved };
+    const fallback = await cli(["check", "--domains=brand.com"], {
+      env: { ...env, NAMESTACK_DOMAINS_CONFIG_DIR: config },
+    });
+    assert.equal(fallback.code, 0, fallback.stdout);
+
+    const missing = await cli(["check", "--domains=brand.com"], { env });
+    assert.equal(missing.code, 2);
+    assert.equal(JSON.parse(missing.stdout).error.code, "CONFIG_REQUIRED");
+  } finally {
+    await rm(config, { recursive: true, force: true });
+  }
+});
+
+test("mcp keeps stdout for protocol messages and exits when the host closes stdin", async () => {
+  const initialize = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "namestack-domains-test", version: "0.0.0" },
+    },
+  };
+  const served = await cli(["mcp"], { input: `${JSON.stringify(initialize)}\n` });
+  assert.equal(served.code, 0);
+  assert.equal(served.stderr, "");
+  const lines = served.stdout.trim().split("\n");
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0] ?? "").result.serverInfo.name, "namestack-domains");
+
+  const invalid = await cli(["mcp", "--format=json"]);
+  assert.equal(invalid.code, 2);
+  assert.equal(invalid.stdout, "");
+  assert.match(invalid.stderr, /INVALID_USAGE/);
 });

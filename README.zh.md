@@ -12,20 +12,18 @@
 
 需要 Node.js 22.18 或更新版本。
 
-尚未发布到 npm。首个版本发布前，从仓库克隆后自行构建安装：
+```sh
+npm install --global @namestack/domains          # 提供 namestack-domains 和 namestack-domains-mcp
+npx @namestack/domains check --name=yourbrand    # 或者不安装直接运行
+```
+
+也可以从仓库克隆后自行构建安装：
 
 ```sh
 bun install --frozen-lockfile
 bun run build
 npm pack
 npm install --global ./namestack-domains-0.1.0.tgz
-```
-
-发布之后改用已发布的包：
-
-```sh
-npm install --global @namestack/domains          # 提供 namestack-domains 和 namestack-domains-mcp
-npx @namestack/domains check --name=yourbrand    # 或者不安装直接运行
 ```
 
 安装后的命令只需要 Node，不需要 Bun；Bun 仅用于构建。

@@ -12,20 +12,18 @@ Ships a CLI for people and an MCP server for agents, both over the same query en
 
 Requires Node.js 22.18 or newer.
 
-Not yet published to npm. Until the first release, build and install from a clone:
+```sh
+npm install --global @namestack/domains          # namestack-domains, namestack-domains-mcp
+npx @namestack/domains check --name=yourbrand    # or run it without installing
+```
+
+To build and install from a clone instead:
 
 ```sh
 bun install --frozen-lockfile
 bun run build
 npm pack
 npm install --global ./namestack-domains-0.1.0.tgz
-```
-
-After the release, install the published package instead:
-
-```sh
-npm install --global @namestack/domains          # namestack-domains, namestack-domains-mcp
-npx @namestack/domains check --name=yourbrand    # or run it without installing
 ```
 
 The installed commands need Node, not Bun. Bun is only used to build.

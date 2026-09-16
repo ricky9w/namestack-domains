@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  # Required for npm trusted publishing, which also attaches provenance.
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Verify the tag matches the package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $pkg" >&2
+            exit 1
+          fi
+
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run test
+      - run: bun run build
+
+      - name: Pack and exercise the tarball
+        run: |
+          npm pack
+          tarball="$(ls namestack-domains-*.tgz)"
+          echo "TARBALL=$tarball" >> "$GITHUB_ENV"
+          work="$(mktemp -d)"
+          cd "$work"
+          npm init -y > /dev/null
+          npm install "$GITHUB_WORKSPACE/$tarball"
+          ./node_modules/.bin/namestack-domains --version
+          ./node_modules/.bin/namestack-domains schema --format=json > /dev/null
+          test -x ./node_modules/.bin/namestack-domains-mcp
+
+      # Publishes the exact tarball that was just verified. Trusted publishing
+      # supplies the credential over OIDC, so no npm token is stored here.
+      - run: npm publish "$TARBALL"
